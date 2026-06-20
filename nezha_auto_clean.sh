@@ -15,7 +15,7 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 fail() { echo -e "${RED}[-]${NC} $1"; }
 
 echo "=========================================="
-echo " 哪吒后门全自动清理 v2.6.3"
+echo " 哪吒后门全自动清理 v2.6.4"
 echo "=========================================="
 echo ""
 echo -e "${YELLOW}⚠️  警告：此脚本将清空 SSH 公钥、清理定时任务！${NC}"
@@ -308,11 +308,14 @@ log "9/10 最终验证..."
 
 MINER_COUNT=$(ps aux | grep -iE "xmrig|miner|c3pool|kdevtmpfsi|kinsing" | grep -v grep | wc -l | tr -d '[:space:]')
 CRON_COUNT=$(crontab -l 2>/dev/null | grep -viE "^#" | grep -viE "^$" | grep -ciE "$MALICIOUS_CRON_PATTERN" | tr -d '\n' || echo 0)
-AUTH_COUNT=$(grep -c . /root/.ssh/authorized_keys 2>/dev/null | tr -d '\n' || echo 0)
+AUTH_COUNT=$(grep -c . /root/.ssh/authorized_keys 2>/dev/null || echo 0)
+AUTH_COUNT=$(echo "$AUTH_COUNT" | tr -d '\n')
+AUTH_COUNT=${AUTH_COUNT:-0}
 SVC_LEFT=$(systemctl list-units --all 2>/dev/null | grep -iE "nezha|nazha|pfpfybsmne|V2bX|c3pool" | wc -l | tr -d '[:space:]' || echo 0)
 C2_CONN=$(ss -tnp 2>/dev/null | grep -cE "data.sh0.cn|sh0.cn|c2tools.caoyuanke.org|212.83.185.19" | tr -d '\n'); C2_CONN=${C2_CONN:-0}
 LD_PRELOAD_OK=0; [ -f /etc/ld.so.preload ] && [ -s /etc/ld.so.preload ] && LD_PRELOAD_OK=1
-SHELL_RC_LEFT=$(for f in /root/.bashrc /root/.profile /etc/profile; do [ -f "$f" ] && grep -ciE "$SHELL_BACKDOOR_PATTERN" "$f" 2>/dev/null; done | paste -sd+ 2>/dev/null | bc 2>/dev/null | tr -d '\n' || echo 0)
+SHELL_RC_LEFT=$(for f in /root/.bashrc /root/.profile /etc/profile; do [ -f "$f" ] && grep -ciE "$SHELL_BACKDOOR_PATTERN" "$f" 2>/dev/null; done | paste -sd+ 2>/dev/null | bc 2>/dev/null)
+SHELL_RC_LEFT=$(echo "${SHELL_RC_LEFT:-0}" | tr -d '\n')
 FRP_LEFT=$(ps aux | grep -iE "frpc|frps|chashell" | grep -v grep | wc -l | tr -d '[:space:]')
 
 echo ""
@@ -329,7 +332,7 @@ echo " 跳板代理残留 : $FRP_LEFT  (应为 0)"
 echo " C2连接残留   : $C2_CONN  (应为 0)"
 echo "=========================================="
 
-if [ "$LD_PRELOAD_OK" -eq 0 ] && [ "$MINER_COUNT" -eq 0 ] && [ "$AUTH_COUNT" -eq 0 ] && [ "$SVC_LEFT" -eq 0 ] && [ "$C2_CONN" -eq 0 ] && [ "$FRP_LEFT" -eq 0 ]; then
+if [ "${LD_PRELOAD_OK:-0}" -eq 0 ] && [ "${MINER_COUNT:-0}" -eq 0 ] && [ "${CRON_COUNT:-0}" -eq 0 ] && [ "${SHELL_RC_LEFT:-0}" -eq 0 ] && [ "${AUTH_COUNT:-0}" -eq 0 ] && [ "${SVC_LEFT:-0}" -eq 0 ] && [ "${FRP_LEFT:-0}" -eq 0 ] && [ "${C2_CONN:-0}" -eq 0 ]; then
     echo -e "${GREEN} 状态: 清理成功！${NC}"
 else
     echo -e "${RED} 状态: 仍有残留，请手动检查${NC}"
