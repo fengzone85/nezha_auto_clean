@@ -1,5 +1,5 @@
 #!/bin/bash
-# ====== 哪吒漏洞入侵 - 全自动清理脚本 v2.6 ======
+# ====== 哪吒漏洞入侵 - 全自动清理脚本 v2.6.1 ======
 # 用法: bash nezha_auto_clean.sh
 # 或一行执行: curl -sL <url> | bash
 
@@ -15,13 +15,13 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 fail() { echo -e "${RED}[-]${NC} $1"; }
 
 echo "=========================================="
-echo " 哪吒后门全自动清理 v2.6"
+echo " 哪吒后门全自动清理 v2.6.1"
 echo "=========================================="
 echo ""
 echo -e "${YELLOW}⚠️  警告：此脚本将清空 SSH 公钥、清理定时任务！${NC}"
 echo -e "${YELLOW}⚠️  请确保你已有其他登录方式（密码/控制台），否则可能失联！${NC}"
 echo ""
-read -p "确认已了解风险并继续？(y/N): " confirm
+read -p "确认已了解风险并继续？(y/N): " confirm < /dev/tty
 if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
     echo "已取消"
     exit 0
@@ -130,13 +130,16 @@ for dir in /home/*; do
 done
 log "  完成"
 
-# ---- 4. 清理定时任务（仅删除恶意特征，保留合法业务） ----
+# ---- 4. 清理定时任务（仅删除极高置信度的恶意特征，保留合法业务） ----
 log "4/9 清理定时任务..."
 
-# 恶意特征关键词（不区分大小写）
-MALICIOUS_CRON_PATTERN="curl.*\|.*sh|wget.*\|.*sh|base64.*-d|/tmp/\.|\.sys_|c3pool|xmrig|nezha|band\.png|nvm\.exe"
+# 仅匹配明确恶意下载/执行特征，不含宽泛词，防止误杀宝塔/1Panel/证书续期等合法任务
+MALICIOUS_CRON_PATTERN="curl.*\|.*sh|wget.*\|.*sh|base64.*-d|/tmp/\.sys_|c3pool|xmrig|band\.png|nvm\.exe"
 
 for user in $(cut -f1 -d: /etc/passwd); do
+    # 先备份原 crontab
+    crontab -u "$user" -l > "/tmp/crontab_bak_${user}_$(date +%s)" 2>/dev/null || true
+    # 过滤恶意特征并重新写入
     crontab -u "$user" -l 2>/dev/null | grep -viE "$MALICIOUS_CRON_PATTERN" | crontab -u "$user" - 2>/dev/null || true
 done
 
@@ -150,10 +153,6 @@ if [ -d /etc/cron.d ]; then
         fi
     done
 fi
-
-# 清理 /var/spool/cron
-rm -rf /var/spool/cron/crontabs/* 2>/dev/null || true
-rm -f /var/spool/cron/* 2>/dev/null || true
 log "  完成"
 
 # ---- 5. 清理恶意 Docker 容器 ----
