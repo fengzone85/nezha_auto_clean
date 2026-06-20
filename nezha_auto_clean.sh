@@ -31,18 +31,21 @@ echo ""
 
 # ---- 0. 解除 LD_PRELOAD 劫持（必须最先执行，否则 ps/ss/find 可能被欺骗） ----
 log "0/10 解除 LD_PRELOAD 劫持..."
+LD_DETECTED=0
 
 # 检查全局 ld.so.preload 配置文件
 if [ -f /etc/ld.so.preload ]; then
     warn "发现 /etc/ld.so.preload，正在备份并清空..."
     cp /etc/ld.so.preload "/etc/ld.so.preload.bak.$(date +%s)" 2>/dev/null
     > /etc/ld.so.preload
+    LD_DETECTED=1
 fi
 
 # 检查当前 Shell 环境变量
 if [ -n "$LD_PRELOAD" ]; then
     warn "检测到 LD_PRELOAD 环境变量=$LD_PRELOAD，正在解除..."
     unset LD_PRELOAD
+    LD_DETECTED=1
 fi
 
 # 递归检查子进程环境（攻击者可能在父进程注入）
@@ -52,6 +55,12 @@ for pid_dir in /proc/*/environ; do
         warn "  发现进程含有 LD_PRELOAD 劫持: $(basename "$(dirname "$pid_dir")")"
     fi
 done 2>/dev/null || true
+
+# 若曾检测到劫持，提示重新登录以清除进程内存中的恶意 so 缓存
+if [ "$LD_DETECTED" = "1" ]; then
+    warn "  LD_PRELOAD 已被清空，但已运行的 shell 进程内存中可能仍缓存被劫持的 so"
+    warn "  建议脚本执行完毕后 exec bash 或重新登录，否则后续 ps/find 仍可能被欺骗"
+fi
 
 log "  完成"
 
