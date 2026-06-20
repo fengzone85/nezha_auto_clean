@@ -160,6 +160,7 @@ fi
 systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || service sshd restart 2>/dev/null || service ssh restart 2>/dev/null || true
 
 # 密码登录已确认生效后，清空公钥（攻击者后门）
+mkdir -p /root/.ssh 2>/dev/null
 > /root/.ssh/authorized_keys 2>/dev/null || true
 for dir in /home/*; do
     [ -d "$dir/.ssh" ] && > "$dir/.ssh/authorized_keys" 2>/dev/null || true

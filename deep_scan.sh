@@ -1,5 +1,5 @@
 #!/bin/bash
-# ====== 生产环境深度排查脚本 v1.1 ======
+# ====== 生产环境深度排查脚本 v1.2 ======
 # 非破坏性只读扫描，不做任何修改
 # 用法: bash deep_scan.sh > scan_report.txt 2>&1
 
@@ -45,21 +45,17 @@ done 2>/dev/null
 # ---- 1. 进程审查 ----
 echo ""; echo "=== 1. 进程审查 ==="
 
-# CPU TOP 10
 echo "--- CPU TOP 10 ---"
 ps aux --sort=-%cpu | head -11
 
-# 可疑进程：高 CPU 且命令行为空或伪造
 echo ""; echo "--- 可疑进程（高CPU + 路径异常） ---"
 ps aux --sort=-%cpu | awk 'NR>1 && $3>50 {print}' | while read line; do
     echo "$line" | grep -qE "\[|\]|/usr/|/lib/" || echo "$WARN $line"
 done
 
-# 无文件进程（deleted）
 echo ""; echo "--- 无文件进程（deleted binary）---"
 ls -l /proc/*/exe 2>/dev/null | grep deleted || echo "$PASS 未发现"
 
-# 隐藏进程检测
 echo ""; echo "--- 隐藏进程检测 ---"
 PSCNT=$(ps aux | wc -l); PROCCNT=$(ls -d /proc/[0-9]* 2>/dev/null | wc -l)
 [ "$PSCNT" -lt "$PROCCNT" ] && echo "$FAIL 可能存在隐藏进程: ps=$PSCNT proc=$PROCCNT" || echo "$PASS ps=$PSCNT proc=$PROCCNT 一致"
@@ -71,15 +67,13 @@ echo "--- 监听端口 ---"
 ss -tlnp 2>/dev/null
 
 echo ""; echo "--- 异常外连 ---"
-# 已知恶意目标
 ss -tnp 2>/dev/null | grep -E "data\.sh0\.cn|sh0\.cn|caoyuanke|212\.83\.185|139\.199\.221|pool\.supportxmr|c3pool|moneroocean|minexmr" | while read line; do
     echo "$FAIL 恶意C2连接: $line"
 done
-# 检查矿池常见端口
 ss -tnp 2>/dev/null | grep -E ":(3333|4444|5555|14444|14433)" | while read line; do
     echo "$WARN 矿池端口连接: $line"
 done
-# 所有非标准外连（剔除 Web/DNS/NTP/SSH）
+
 echo ""; echo "--- 非常见端口外连（排除80/443/53/22）---"
 ss -tnp 2>/dev/null | grep -vE ":(80|443|53|22|853|123|25|587|465|143|993|110|995|3306|5432|6379|27017) " | grep -E "ESTAB" | head -30
 
@@ -99,7 +93,6 @@ else
     echo "$PASS 未发现"
 fi
 
-# 检查常见路径残留
 for f in /tmp/frpc /tmp/frps /tmp/chashell /usr/local/bin/frpc /usr/local/bin/frps /usr/local/bin/chashell; do
     [ -f "$f" ] && echo "$FAIL 发现文件残留: $f"
 done
@@ -110,9 +103,7 @@ echo ""; echo "=== 3. Systemd 服务审查 ==="
 echo "--- 用户态异常服务 ---"
 systemctl list-units --all --type=service --state=running 2>/dev/null | grep -v -E "^(●|UNIT|$)" | while read line; do
     svc=$(echo "$line" | awk '{print $1}')
-    # 排除系统常见服务
     echo "$svc" | grep -qiE "^(systemd|dbus|ssh|cron|rsyslog|network|docker|containerd|nginx|apache|mysql|php|redis|fail2ban|ufw|iptables|certbot|snapd|polkit|accounts-daemon|udisks|upower|rtkit|colord|ModemManager|NetworkManager|wpa_supplicant|avahi-daemon|bluetooth|thermald|cups)" && continue
-    # 标记可疑服务
     echo "$svc" | grep -qiE "nezha|nazha|pfpfybsmne|V2bX|c3pool|xmrig|history_check|networktraffic|miner|watchdog|sys_" && echo "$FAIL 恶意服务: $line" || echo "$WARN 非标准服务: $line"
 done
 
@@ -133,7 +124,7 @@ for user in $(cut -f1 -d: /etc/passwd); do
     echo "$CRON" | while read line; do
         [ -z "$line" ] && continue
         echo "$line" | grep -q "^#" && { echo "  (注释) $line"; continue; }
-        echo "$line" | grep -qiE "curl.*\|.*sh|wget.*\|.*sh|base64.*-d|/tmp/\.sys_|c3pool|xmrig|band\.png|nvm\.exe|\.sh0\.cn|caoyuanke" && \
+        echo "$line" | grep -qiE "curl.\|.\sh|wget.\|.\sh|base64.\*-d|/tmp/\.sys_|c3pool|xmrig|band\.png|nvm\.exe|\.sh0\.cn|caoyuanke" && \
             echo "$FAIL $user: $line" || echo "  $line"
     done
 done
@@ -143,7 +134,7 @@ echo ""; echo "--- /etc/cron.d 审查 ---"
     [ -f "$f" ] || continue
     echo "  [$f]"
     grep -v "^#" "$f" 2>/dev/null | grep -v "^$" | while read line; do
-        echo "$line" | grep -qiE "curl.*\|.*sh|wget.*\|.*sh|base64|/tmp/\.|\.sys_|c3pool|xmrig" && echo "$FAIL   $line" || echo "    $line"
+        echo "$line" | grep -qiE "curl.\|.\sh|wget.\|.\sh|base64|/tmp/\.|\.sys_|c3pool|xmrig" && echo "$FAIL   $line" || echo "    $line"
     done
 done
 
@@ -176,7 +167,7 @@ done
 
 # ---- 5.5. Shell 配置文件后门检测（复活机制） ----
 echo ""; echo "=== 5.5. Shell 配置文件后门 ==="
-SHELL_RC_PATTERN="curl.*\|.*sh|wget.*\|.*sh|base64.*-d|/tmp/\.sys_|c3pool|xmrig|band\.png|nvm\.exe|frpc|frps|chashell"
+SHELL_RC_PATTERN="curl.\|.\sh|wget.\|.\sh|base64.\*-d|/tmp/\.sys_|c3pool|xmrig|band\.png|nvm\.exe|frpc|frps|chashell"
 
 for rc in /root/.bashrc /root/.profile /root/.bash_profile /etc/profile; do
     [ -f "$rc" ] || continue
@@ -269,7 +260,6 @@ lsmod 2>/dev/null | grep -v "^Module" | while read mod rest; do
     echo "$mod" | grep -qiE "rootkit|suterusu|diamorphine|adore|knark|kbeast|phalanx|Rkit" && echo "$FAIL 可疑内核模块: $mod" || true
 done
 
-# 检查 rootkit 常见特征
 echo ""; echo "--- Rootkit 快速检测 ---"
 [ -f /proc/modules ] && grep -qiE "rootkit|suterusu|diamorphine|adore" /proc/modules && echo "$FAIL /proc/modules 异常" || echo "$PASS /proc/modules"
 [ -d /proc/vmallocinfo ] && echo "  proc/vmallocinfo: 存在" || echo "  proc/vmallocinfo: 正常"
@@ -294,12 +284,13 @@ grep "sudo" /var/log/auth.log 2>/dev/null | tail -20 || grep "sudo" /var/log/sec
 echo ""; echo "--- .bash_history 可疑命令 ---"
 for hf in /root/.bash_history /home/*/.bash_history; do
     [ -f "$hf" ] || continue
-    SUSP=$(grep -iE "curl.*\|.*sh|wget.*\|.*sh|base64.*-d|nc -e|bash -i >&|python.*pty|/tmp/band\.png|/tmp/nvm\.exe" "$hf" 2>/dev/null)
+    SUSP=$(grep -iE "curl.\|.\sh|wget.\|.\sh|base64.\-d|nc -e|bash -i >&|python.\pty|/tmp/band\.png|/tmp/nvm\.exe" "$hf" 2>/dev/null)
     [ -n "$SUSP" ] && echo "$FAIL $hf: $SUSP"
 done
 
-# ---- 11. 包完整性（如果是 Debian/Ubuntu） ----
+# ---- 11. 包完整性 ----
 echo ""; echo "=== 11. 包完整性 ==="
+
 if command -v debsums &>/dev/null; then
     echo "--- 关键包校验（debsums）---"
     debsums -c 2>/dev/null | head -30 || echo "$PASS 全部通过"
@@ -329,6 +320,106 @@ else
     [ -n "$DEV" ] && echo "  主网卡: $DEV  rx: $(cat /sys/class/net/$DEV/statistics/rx_bytes 2>/dev/null)  tx: $(cat /sys/class/net/$DEV/statistics/tx_bytes 2>/dev/null)"
 fi
 
+# ---- 13. 宝塔面板专项审查 ----
+echo ""; echo "=== 13. 宝塔面板专项 ==="
+
+if [ -d /www/server/panel ]; then
+    echo "--- 面板版本 ---"
+    head -3 /www/server/panel/class/common.py 2>/dev/null | grep -oP '"version":\s*"\K[^"]+' || grep "version" /www/server/panel/class/common.py 2>/dev/null | head -1
+
+    echo ""; echo "--- 计划任务 ---"
+    if [ -d /www/server/cron ]; then
+        for f in /www/server/cron/*; do
+            [ -f "$f" ] || continue
+            fname=$(basename "$f")
+            echo "  [$fname]"
+            head -20 "$f" 2>/dev/null | while read line; do
+                [ -z "$line" ] && continue
+                echo "    $line"
+            done
+            echo ""
+        done
+    else
+        echo "  /www/server/cron 目录不存在"
+    fi
+
+    echo "--- 面板登录日志（近期异常） ---"
+    LOG_DIR="/www/server/panel/logs/request"
+    if [ -d "$LOG_DIR" ]; then
+        grep -iE "login|fail|unauth|error" "$LOG_DIR"/*.log 2>/dev/null | tail -50
+    else
+        echo "  请求日志目录不存在: $LOG_DIR"
+    fi
+
+    echo ""; echo "--- 网站配置注入检测 ---"
+    NGX_INJECTED=0
+    if [ -d /www/server/panel/vhost/nginx ]; then
+        grep -rnE "proxy_pass\s+http://0\.0\.0\.0|proxy_pass\s+http://127\.0\.0\.1:[89][0-9]{3}" /www/server/panel/vhost/nginx/ 2>/dev/null | while read line; do
+            echo "$FAIL Nginx 可疑反代: $line"
+            NGX_INJECTED=1
+        done
+    fi
+    if [ -d /www/server/panel/vhost/apache ]; then
+        grep -rnE "ProxyPass\s+/.*http://127\.0\.0\.1:[89][0-9]{3}" /www/server/panel/vhost/apache/ 2>/dev/null | while read line; do
+            echo "$FAIL Apache 可疑反代: $line"
+        done
+    fi
+    [ "$NGX_INJECTED" -eq 0 ] && echo "$PASS 未发现 Nginx 配置注入"
+
+    echo ""; echo "--- MySQL 后门账户 ---"
+    if command -v mysql &>/dev/null; then
+        BT_MYSQL_ROOT=$(cat /www/server/panel/data/default.pl 2>/dev/null)
+        if [ -n "$BT_MYSQL_ROOT" ]; then
+            MYSQL_REMOTE=$(mysql -uroot -p"$BT_MYSQL_ROOT" -e "SELECT user,host FROM mysql.user WHERE host='%'" 2>/dev/null | grep -v "^user\|^$")
+        else
+            MYSQL_REMOTE=$(mysql -e "SELECT user,host FROM mysql.user WHERE host='%'" 2>/dev/null | grep -v "^user\|^$")
+        fi
+        if [ -n "$MYSQL_REMOTE" ]; then
+            echo "$FAIL 发现远程 MySQL 账户 (host='%')："
+            echo "$MYSQL_REMOTE"
+        else
+            echo "$PASS 未发现远程 MySQL 账户"
+        fi
+    else
+        echo "  MySQL 客户端不可用"
+    fi
+
+    echo ""; echo "--- 面板公网暴露 ---"
+    PANEL_LISTEN=$(ss -tlnp 2>/dev/null | grep -E ":8888\b|:888\b")
+    if [ -n "$PANEL_LISTEN" ]; then
+        echo "$WARN 面板端口监听："
+        echo "$PANEL_LISTEN"
+        echo "$PANEL_LISTEN" | grep -q "127.0.0.1" && echo "$PASS 面板绑定于 localhost，未暴露公网" || true
+        echo "$PANEL_LISTEN" | grep -qE "0\.0\.0\.0|\[::\]|:::" && echo "$FAIL 面板监听 0.0.0.0/::，可能暴露于公网！"
+    else
+        echo "$PASS 面板端口未监听（可能已关闭或使用非标准端口）"
+    fi
+
+    echo ""; echo "--- 宝塔 WAF/Firewall 状态 ---"
+    if command -v bt &>/dev/null; then
+        bt status 2>/dev/null | head -5 || echo "  bt 命令不可用"
+    fi
+    # 检查 Nginx WAF (ngx_lua_waf / bt_waf)
+    if [ -d /www/server/btwaf ]; then
+        echo "  BTWAF 目录存在: /www/server/btwaf"
+    else
+        echo "  未发现 BTWAF 目录"
+    fi
+    # 检查系统防火墙 iptables/firewalld/ufw
+    if command -v ufw &>/dev/null; then
+        echo "  UFW: $(ufw status 2>/dev/null | head -1)"
+    fi
+    if command -v firewall-cmd &>/dev/null; then
+        echo "  FirewallD: $(firewall-cmd --state 2>/dev/null)"
+    fi
+    if command -v iptables &>/dev/null; then
+        iptables -L -n 2>/dev/null | grep -cE "^DROP|^REJECT|^ACCEPT" | xargs -I{} echo "  iptables 规则数: {}"
+    fi
+
+else
+    echo "未检测到宝塔面板 (/www/server/panel 不存在)"
+fi
+
 echo ""; echo "=============================================="
-echo " 扫描完成"
+echo " 扫描完成  (deep_scan.sh v1.2)"
 echo "=============================================="
