@@ -2,7 +2,7 @@
 
 针对哪吒监控面板漏洞（CVE 相关）导致的大规模服务器入侵，提供一键式自动化应急清理方案。
 
-## 当前版本：v2.6.2
+## 当前版本：v2.6.3
 
 ## 执行方式（推荐先下载再执行，防断网变砖）
 
@@ -21,7 +21,10 @@ curl -sL https://raw.githubusercontent.com/fengzone85/nezha_auto_clean/main/nezh
 | 5 | 恶意 Docker 容器 | 流量套利容器/镜像清理 |
 | 6 | 恶意文件残留 | SHA256 校验杀二进制 + 路径黑名单 |
 | 7 | Docker 悬空镜像 | docker image prune |
-| 8 | 最终验证 | 进程/定时任务/SSH/服务/C2 连接 五项报告 |
+| 8 | LD_PRELOAD 检测 | 检测并清理 /etc/ld.so.preload 及 LD_PRELOAD 环境变量劫持 |
+| 9 | Shell 配置清理 | 扫描并清理 ~/.bashrc、~/.profile、/etc/profile 等 Shell 配置文件中的恶意注入 |
+| 10 | 跳板代理清理 | 检测并清除攻击者部署的 frp/nps/Stowaway 等跳板代理进程及配置 |
+| 11 | 最终验证 | 进程/定时任务/SSH/服务/C2 连接 五项报告 |
 
 ## IOC 覆盖
 
