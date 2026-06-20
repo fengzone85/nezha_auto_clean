@@ -1,5 +1,5 @@
 #!/bin/bash
-# ====== 哪吒漏洞入侵 - 全自动清理脚本 v2.6.1 ======
+# ====== 哪吒漏洞入侵 - 全自动清理脚本 v2.6.2 ======
 # 用法: bash nezha_auto_clean.sh
 # 或一行执行: curl -sL <url> | bash
 
@@ -15,10 +15,11 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 fail() { echo -e "${RED}[-]${NC} $1"; }
 
 echo "=========================================="
-echo " 哪吒后门全自动清理 v2.6.1"
+echo " 哪吒后门全自动清理 v2.6.2"
 echo "=========================================="
 echo ""
 echo -e "${YELLOW}⚠️  警告：此脚本将清空 SSH 公钥、清理定时任务！${NC}"
+echo -e "${YELLOW}⚠️  注意：本脚本将彻底卸载哪吒监控 (Nezha) 及 Agent，请事后重新安装！${NC}"
 echo -e "${YELLOW}⚠️  请确保你已有其他登录方式（密码/控制台），否则可能失联！${NC}"
 echo ""
 read -p "确认已了解风险并继续？(y/N): " confirm < /dev/tty
@@ -159,7 +160,7 @@ log "  完成"
 log "5/9 清理恶意 Docker 容器..."
 if command -v docker &>/dev/null; then
     # 已知流量套利容器
-    MALICIOUS_CONTAINERS="pawns honeygain repocket tm traffmonetizer peer2profit earnapp packetstream watchtower looking-glass"
+    MALICIOUS_CONTAINERS="pawns honeygain repocket tm traffmonetizer peer2profit earnapp packetstream looking-glass"
     for c in $MALICIOUS_CONTAINERS; do
         docker stop "$c" 2>/dev/null || true
         docker rm "$c" 2>/dev/null || true
@@ -168,7 +169,7 @@ if command -v docker &>/dev/null; then
     # 搜索其他可疑容器
     docker ps -a --format '{{.Names}}' 2>/dev/null | while read name; do
         [ -z "$name" ] && continue
-        echo "$name" | grep -qiE "pawns|honeygain|repocket|traff|earn|proxy|profit|packet|iproyal|watchtower|looking.glass" && {
+        echo "$name" | grep -qiE "pawns|honeygain|repocket|traff|earn|proxy|profit|packet|iproyal|looking.glass" && {
             warn "  可疑容器: $name"
             docker stop "$name" 2>/dev/null || true
             docker rm "$name" 2>/dev/null || true
@@ -176,7 +177,7 @@ if command -v docker &>/dev/null; then
     done || true
 
     # 删除已知恶意镜像
-    MALICIOUS_IMAGES="iproyal/pawns-cli traffmonetizer/cli_v2 lswl/vertex lswl/vertex-base honeygain/honeygain repocket/repocket containrrr/watchtower wikihostinc/looking-glass-server"
+    MALICIOUS_IMAGES="iproyal/pawns-cli traffmonetizer/cli_v2 lswl/vertex lswl/vertex-base honeygain/honeygain repocket/repocket wikihostinc/looking-glass-server"
     for img in $MALICIOUS_IMAGES; do
         docker rmi "$img" 2>/dev/null || true
     done
@@ -235,7 +236,7 @@ log "8/9 最终验证..."
 
 MINER_COUNT=$(ps aux | grep -iE "xmrig|miner|c3pool|kdevtmpfsi|kinsing" | grep -v grep | wc -l)
 CRON_COUNT=$(crontab -l 2>/dev/null | grep -viE "^#" | grep -viE "^$" | grep -ciE "$MALICIOUS_CRON_PATTERN" || echo 0)
-AUTH_COUNT=$(wc -l < /root/.ssh/authorized_keys 2>/dev/null || echo 0)
+AUTH_COUNT=$(grep -c . /root/.ssh/authorized_keys 2>/dev/null || echo 0)
 SVC_LEFT=$(systemctl list-units --all 2>/dev/null | grep -iE "nezha|nazha|pfpfybsmne|V2bX|c3pool" | wc -l || echo 0)
 C2_CONN=$(ss -tnp 2>/dev/null | grep -cE "data.sh0.cn|sh0.cn|c2tools.caoyuanke.org|212.83.185.19"); C2_CONN=${C2_CONN:-0}
 
