@@ -49,7 +49,7 @@ fi
 for pid_dir in /proc/*/environ; do
     [ -f "$pid_dir" ] || continue
     if grep -q "LD_PRELOAD" "$pid_dir" 2>/dev/null; then
-        warn "  发现进程含有 LD_PRELOAD 劫持: $(dirname "$pid_dir" | xargs basename)"
+        warn "  发现进程含有 LD_PRELOAD 劫持: $(basename "$(dirname "$pid_dir")")"
     fi
 done 2>/dev/null || true
 
@@ -297,14 +297,14 @@ log "  完成"
 # ---- 9. 最终验证 ----
 log "9/10 最终验证..."
 
-MINER_COUNT=$(ps aux | grep -iE "xmrig|miner|c3pool|kdevtmpfsi|kinsing" | grep -v grep | wc -l)
-CRON_COUNT=$(crontab -l 2>/dev/null | grep -viE "^#" | grep -viE "^$" | grep -ciE "$MALICIOUS_CRON_PATTERN" || echo 0)
-AUTH_COUNT=$(grep -c . /root/.ssh/authorized_keys 2>/dev/null || echo 0)
-SVC_LEFT=$(systemctl list-units --all 2>/dev/null | grep -iE "nezha|nazha|pfpfybsmne|V2bX|c3pool" | wc -l || echo 0)
-C2_CONN=$(ss -tnp 2>/dev/null | grep -cE "data.sh0.cn|sh0.cn|c2tools.caoyuanke.org|212.83.185.19"); C2_CONN=${C2_CONN:-0}
+MINER_COUNT=$(ps aux | grep -iE "xmrig|miner|c3pool|kdevtmpfsi|kinsing" | grep -v grep | wc -l | tr -d '[:space:]')
+CRON_COUNT=$(crontab -l 2>/dev/null | grep -viE "^#" | grep -viE "^$" | grep -ciE "$MALICIOUS_CRON_PATTERN" | tr -d '\n' || echo 0)
+AUTH_COUNT=$(grep -c . /root/.ssh/authorized_keys 2>/dev/null | tr -d '\n' || echo 0)
+SVC_LEFT=$(systemctl list-units --all 2>/dev/null | grep -iE "nezha|nazha|pfpfybsmne|V2bX|c3pool" | wc -l | tr -d '[:space:]' || echo 0)
+C2_CONN=$(ss -tnp 2>/dev/null | grep -cE "data.sh0.cn|sh0.cn|c2tools.caoyuanke.org|212.83.185.19" | tr -d '\n'); C2_CONN=${C2_CONN:-0}
 LD_PRELOAD_OK=0; [ -f /etc/ld.so.preload ] && [ -s /etc/ld.so.preload ] && LD_PRELOAD_OK=1
-SHELL_RC_LEFT=$(for f in /root/.bashrc /root/.profile /etc/profile; do [ -f "$f" ] && grep -ciE "$SHELL_BACKDOOR_PATTERN" "$f" 2>/dev/null; done | paste -sd+ | bc 2>/dev/null || echo 0)
-FRP_LEFT=$(ps aux | grep -iE "frpc|frps|chashell" | grep -v grep | wc -l)
+SHELL_RC_LEFT=$(for f in /root/.bashrc /root/.profile /etc/profile; do [ -f "$f" ] && grep -ciE "$SHELL_BACKDOOR_PATTERN" "$f" 2>/dev/null; done | paste -sd+ 2>/dev/null | bc 2>/dev/null | tr -d '\n' || echo 0)
+FRP_LEFT=$(ps aux | grep -iE "frpc|frps|chashell" | grep -v grep | wc -l | tr -d '[:space:]')
 
 echo ""
 echo "=========================================="
