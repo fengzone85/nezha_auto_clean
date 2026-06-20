@@ -1,5 +1,5 @@
 #!/bin/bash
-# ====== 哪吒漏洞入侵 - 全自动清理脚本 v2.6.2 ======
+# ====== 哪吒漏洞入侵 - 全自动清理脚本 v2.6.3 ======
 # 用法: bash nezha_auto_clean.sh
 # 或一行执行: curl -sL <url> | bash
 
@@ -15,7 +15,7 @@ warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 fail() { echo -e "${RED}[-]${NC} $1"; }
 
 echo "=========================================="
-echo " 哪吒后门全自动清理 v2.6.2"
+echo " 哪吒后门全自动清理 v2.6.3"
 echo "=========================================="
 echo ""
 echo -e "${YELLOW}⚠️  警告：此脚本将清空 SSH 公钥、清理定时任务！${NC}"
@@ -29,8 +29,34 @@ if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
 fi
 echo ""
 
+# ---- 0. 解除 LD_PRELOAD 劫持（必须最先执行，否则 ps/ss/find 可能被欺骗） ----
+log "0/10 解除 LD_PRELOAD 劫持..."
+
+# 检查全局 ld.so.preload 配置文件
+if [ -f /etc/ld.so.preload ]; then
+    warn "发现 /etc/ld.so.preload，正在备份并清空..."
+    cp /etc/ld.so.preload "/etc/ld.so.preload.bak.$(date +%s)" 2>/dev/null
+    > /etc/ld.so.preload
+fi
+
+# 检查当前 Shell 环境变量
+if [ -n "$LD_PRELOAD" ]; then
+    warn "检测到 LD_PRELOAD 环境变量=$LD_PRELOAD，正在解除..."
+    unset LD_PRELOAD
+fi
+
+# 递归检查子进程环境（攻击者可能在父进程注入）
+for pid_dir in /proc/*/environ; do
+    [ -f "$pid_dir" ] || continue
+    if grep -q "LD_PRELOAD" "$pid_dir" 2>/dev/null; then
+        warn "  发现进程含有 LD_PRELOAD 劫持: $(dirname "$pid_dir" | xargs basename)"
+    fi
+done 2>/dev/null || true
+
+log "  完成"
+
 # ---- 1. 杀挖矿进程 ----
-log "1/9 清理挖矿进程..."
+log "1/10 清理挖矿进程..."
 
 # 先停挖矿相关 systemd 服务（防止 auto-restart 复活）
 for miner_svc in xmrig c3pool_miner; do
@@ -71,7 +97,7 @@ rm -rf /root/c3pool /tmp/.sys_root_svc /tmp/.sys_*_svc* /tmp/.X11-unix /tmp/.sys
 log "  完成"
 
 # ---- 2. 停止并删除恶意 systemd 服务 ----
-log "2/9 清理恶意服务..."
+log "2/10 清理恶意服务..."
 
 # 精确匹配已知恶意服务名（包含正版 nezha-agent/nazha-agent 无后缀名，运行时请确认不需要哪吒监控）
 MALICIOUS_SERVICES=(
@@ -108,7 +134,7 @@ rm -rf /opt/nezha /opt/nazha 2>/dev/null || true
 log "  完成"
 
 # ---- 3. 清除 SSH 后门 ----
-log "3/9 清除 SSH 后门..."
+log "3/10 清除 SSH 后门..."
 
 # 先备份 authorized_keys，防止误操作导致失联
 BACKUP_SUFFIX=$(date +%s)
@@ -132,7 +158,7 @@ done
 log "  完成"
 
 # ---- 4. 清理定时任务（仅删除极高置信度的恶意特征，保留合法业务） ----
-log "4/9 清理定时任务..."
+log "4/10 清理定时任务..."
 
 # 仅匹配明确恶意下载/执行特征，不含宽泛词，防止误杀宝塔/1Panel/证书续期等合法任务
 MALICIOUS_CRON_PATTERN="curl.*\|.*sh|wget.*\|.*sh|base64.*-d|/tmp/\.sys_|c3pool|xmrig|band\.png|nvm\.exe"
@@ -156,11 +182,41 @@ if [ -d /etc/cron.d ]; then
 fi
 log "  完成"
 
-# ---- 5. 清理恶意 Docker 容器 ----
-log "5/9 清理恶意 Docker 容器..."
+# ---- 5. 清理 Shell 配置文件后门（防止复活） ----
+log "5/10 清理 Shell 配置文件后门..."
+
+# 攻击者常在 .bashrc / .profile / etc/profile 末尾注入恶意代码，每次登录即复活
+PROFILE_FILES="/root/.bashrc /root/.profile /etc/profile"
+SHELL_BACKDOOR_PATTERN="curl.*\|.*sh|wget.*\|.*sh|base64.*-d|/tmp/\.sys_|c3pool|xmrig|band\.png|nvm\.exe"
+
+for file in $PROFILE_FILES; do
+    if [ -f "$file" ]; then
+        if grep -qiE "$SHELL_BACKDOOR_PATTERN" "$file" 2>/dev/null; then
+            warn "  发现 $file 含有恶意注入，正在备份并清理..."
+            cp "$file" "$file.bak.$(date +%s)" 2>/dev/null
+            sed -i "/$SHELL_BACKDOOR_PATTERN/d" "$file" 2>/dev/null
+        fi
+    fi
+done
+
+# 检查所有用户家目录下的 .bashrc 和 .profile
+for homedir in /home/* /root; do
+    for rc in .bashrc .profile .bash_profile; do
+        [ -f "$homedir/$rc" ] || continue
+        if grep -qiE "$SHELL_BACKDOOR_PATTERN" "$homedir/$rc" 2>/dev/null; then
+            warn "  发现 $homedir/$rc 含有恶意注入，正在备份并清理..."
+            cp "$homedir/$rc" "$homedir/$rc.bak.$(date +%s)" 2>/dev/null
+            sed -i "/$SHELL_BACKDOOR_PATTERN/d" "$homedir/$rc" 2>/dev/null
+        fi
+    done
+done
+log "  完成"
+
+# ---- 6. 清理恶意 Docker 容器 ----
+log "6/10 清理恶意 Docker 容器..."
 if command -v docker &>/dev/null; then
     # 已知流量套利容器
-    MALICIOUS_CONTAINERS="pawns honeygain repocket tm traffmonetizer peer2profit earnapp packetstream looking-glass"
+    MALICIOUS_CONTAINERS="pawns honeygain repocket tm traffmonetizer peer2profit earnapp packetstream"
     for c in $MALICIOUS_CONTAINERS; do
         docker stop "$c" 2>/dev/null || true
         docker rm "$c" 2>/dev/null || true
@@ -169,7 +225,7 @@ if command -v docker &>/dev/null; then
     # 搜索其他可疑容器
     docker ps -a --format '{{.Names}}' 2>/dev/null | while read name; do
         [ -z "$name" ] && continue
-        echo "$name" | grep -qiE "pawns|honeygain|repocket|traff|earn|proxy|profit|packet|iproyal|looking.glass" && {
+        echo "$name" | grep -qiE "pawns|honeygain|repocket|traff|earn|proxy|profit|packet|iproyal" && {
             warn "  可疑容器: $name"
             docker stop "$name" 2>/dev/null || true
             docker rm "$name" 2>/dev/null || true
@@ -177,15 +233,20 @@ if command -v docker &>/dev/null; then
     done || true
 
     # 删除已知恶意镜像
-    MALICIOUS_IMAGES="iproyal/pawns-cli traffmonetizer/cli_v2 lswl/vertex lswl/vertex-base honeygain/honeygain repocket/repocket wikihostinc/looking-glass-server"
+    MALICIOUS_IMAGES="iproyal/pawns-cli traffmonetizer/cli_v2 lswl/vertex lswl/vertex-base honeygain/honeygain repocket/repocket"
     for img in $MALICIOUS_IMAGES; do
         docker rmi "$img" 2>/dev/null || true
     done
 fi
 log "  完成"
 
-# ---- 6. 删除已知恶意文件 ----
-log "6/9 清理恶意文件残留..."
+# ---- 7. 删除已知恶意文件 ----
+log "7/10 清理恶意文件残留..."
+
+# 先杀内网穿透/跳板代理工具进程（攻击者用服务器当肉鸡跳板）
+for proxy in frpc frps chashell; do
+    pkill -9 "$proxy" 2>/dev/null || true
+done
 
 # SHA256 匹配已知恶意 nezha-agent 二进制
 KNOWN_EVIL_SHA256="e7260c1b6a0e932a28e36e835f15b01f2109fdce6f835b6fec74594a46fd94f0"
@@ -205,6 +266,8 @@ rm -rf \
     /usr/local/bin/xmrig \
     /home/testnezha \
     /var/lib/sudo/lectured/testnezha \
+    /tmp/frpc /tmp/frps /tmp/chashell \
+    /usr/local/bin/frpc /usr/local/bin/frps /usr/local/bin/chashell \
     /tmp/band.png \
     /tmp/nvm.exe \
     /opt/band.png \
@@ -224,34 +287,40 @@ rm -rf \
     2>/dev/null || true
 log "  完成"
 
-# ---- 7. 清理 Docker 悬空镜像 ----
-log "7/9 清理 Docker 悬空镜像..."
+# ---- 8. 清理 Docker 悬空镜像 ----
+log "8/10 清理 Docker 悬空镜像..."
 if command -v docker &>/dev/null; then
     docker image prune -f 2>/dev/null || true
 fi
 log "  完成"
 
-# ---- 8. 最终验证 ----
-log "8/9 最终验证..."
+# ---- 9. 最终验证 ----
+log "9/10 最终验证..."
 
 MINER_COUNT=$(ps aux | grep -iE "xmrig|miner|c3pool|kdevtmpfsi|kinsing" | grep -v grep | wc -l)
 CRON_COUNT=$(crontab -l 2>/dev/null | grep -viE "^#" | grep -viE "^$" | grep -ciE "$MALICIOUS_CRON_PATTERN" || echo 0)
 AUTH_COUNT=$(grep -c . /root/.ssh/authorized_keys 2>/dev/null || echo 0)
 SVC_LEFT=$(systemctl list-units --all 2>/dev/null | grep -iE "nezha|nazha|pfpfybsmne|V2bX|c3pool" | wc -l || echo 0)
 C2_CONN=$(ss -tnp 2>/dev/null | grep -cE "data.sh0.cn|sh0.cn|c2tools.caoyuanke.org|212.83.185.19"); C2_CONN=${C2_CONN:-0}
+LD_PRELOAD_OK=0; [ -f /etc/ld.so.preload ] && [ -s /etc/ld.so.preload ] && LD_PRELOAD_OK=1
+SHELL_RC_LEFT=$(for f in /root/.bashrc /root/.profile /etc/profile; do [ -f "$f" ] && grep -ciE "$SHELL_BACKDOOR_PATTERN" "$f" 2>/dev/null; done | paste -sd+ | bc 2>/dev/null || echo 0)
+FRP_LEFT=$(ps aux | grep -iE "frpc|frps|chashell" | grep -v grep | wc -l)
 
 echo ""
 echo "=========================================="
 echo " 清理报告"
 echo "=========================================="
+echo " LD_PRELOAD劫持: $LD_PRELOAD_OK  (应为 0)"
 echo " 挖矿进程残留 : $MINER_COUNT  (应为 0)"
 echo " 恶意cron残留 : $CRON_COUNT  (应为 0)"
+echo " Shell注入残留 : $SHELL_RC_LEFT  (应为 0)"
 echo " SSH 公钥数量  : $AUTH_COUNT  (应为 0)"
 echo " 恶意服务残留 : $SVC_LEFT  (应为 0)"
+echo " 跳板代理残留 : $FRP_LEFT  (应为 0)"
 echo " C2连接残留   : $C2_CONN  (应为 0)"
 echo "=========================================="
 
-if [ "$MINER_COUNT" -eq 0 ] && [ "$AUTH_COUNT" -eq 0 ] && [ "$SVC_LEFT" -eq 0 ] && [ "$C2_CONN" -eq 0 ]; then
+if [ "$LD_PRELOAD_OK" -eq 0 ] && [ "$MINER_COUNT" -eq 0 ] && [ "$AUTH_COUNT" -eq 0 ] && [ "$SVC_LEFT" -eq 0 ] && [ "$C2_CONN" -eq 0 ] && [ "$FRP_LEFT" -eq 0 ]; then
     echo -e "${GREEN} 状态: 清理成功！${NC}"
 else
     echo -e "${RED} 状态: 仍有残留，请手动检查${NC}"
